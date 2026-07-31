@@ -2,6 +2,8 @@
 
 Find a more shaded walking route through New York City.
 
+**Live app:** https://shade-walk-nyc.vercel.app
+
 Shade Walk compares valid pedestrian routes against the sun's position, NYC building data, and the 2015 Street Tree Census. It favors the route with the strongest estimated shade while respecting the user's maximum acceptable detour.
 
 ## What it does
