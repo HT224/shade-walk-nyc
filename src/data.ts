@@ -1,4 +1,4 @@
-import type { BuildingPoint, LonLat, Place, TreePoint } from './types'
+import type { BuildingPoint, LonLat, Place, SidewalkShed, TreePoint } from './types'
 import { bbox } from './geo'
 
 const NYC_BOUNDS = { west: -74.27, south: 40.49, east: -73.68, north: 40.93 }
@@ -63,6 +63,35 @@ export async function fetchBuildings(route: LonLat[]): Promise<BuildingPoint[]> 
       const point: LonLat = [valid.reduce((s, p) => s + p[0], 0) / valid.length, valid.reduce((s, p) => s + p[1], 0) / valid.length]
       const parsed = parsePoint({ coordinates: point })
       return parsed ? [{ lon: parsed[0], lat: parsed[1], heightM: Math.max(3, Number(row.height_roof) * 0.3048 || 10) }] : []
+    })
+  } catch { return [] }
+}
+
+export async function fetchSidewalkSheds(points: LonLat[]): Promise<SidewalkShed[]> {
+  const [west, south, east, north] = bbox(points, 0.006)
+  const where = [
+    "sidewalk_shed_work_type_='YES'",
+    'first_permit_date is not null',
+    'signoff_date is null',
+    "filing_status in ('Permit Entire','Permit Issued')",
+    'longitude is not null',
+    'latitude is not null',
+    `longitude::number between ${west} and ${east}`,
+    `latitude::number between ${south} and ${north}`,
+  ].join(' AND ')
+  const select = 'job_filing_number,house_no,street_name,borough,latitude,longitude'
+  const url = `https://data.cityofnewyork.us/resource/w9ak-ipjd.json?$select=${encodeURIComponent(select)}&$where=${encodeURIComponent(where)}&$limit=5000`
+  try {
+    const response = await fetch(url)
+    if (!response.ok) return []
+    const rows = await response.json() as Array<{ job_filing_number: string; house_no?: string; street_name?: string; borough?: string; latitude: string; longitude: string }>
+    const seen = new Set<string>()
+    return rows.flatMap((row) => {
+      const shed = { lon: Number(row.longitude), lat: Number(row.latitude), address: [row.house_no, row.street_name, row.borough].filter(Boolean).join(' '), filing: row.job_filing_number }
+      const key = `${shed.lon.toFixed(5)},${shed.lat.toFixed(5)}`
+      if (!Number.isFinite(shed.lon) || !Number.isFinite(shed.lat) || seen.has(key)) return []
+      seen.add(key)
+      return [shed]
     })
   } catch { return [] }
 }

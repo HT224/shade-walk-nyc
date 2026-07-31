@@ -16,6 +16,9 @@ header h1 { font: 700 23px/1 'Fraunces', serif; margin: 0; }
 .hero > p:last-child { font-size: 17px; line-height: 1.55; color: #46645b; max-width: 560px; }
 .card { background: #fffdf7; border: 1px solid #173d3520; border-radius: 22px; box-shadow: 0 12px 35px #173d350d; }
 .planner { padding: 18px; position: relative; z-index: 500; }
+.mode-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 4px; margin-bottom: 16px; border-radius: 13px; background: #e8e9df; }
+.mode-toggle button { border: 0; border-radius: 10px; padding: 10px; background: transparent; color: #657870; font-weight: 700; }
+.mode-toggle button.active { background: #fffdf7; color: #173d35; box-shadow: 0 2px 8px #173d3517; }
 .address-field { position: relative; margin-bottom: 11px; }
 .address-field label, .control { display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #517066; }
 input, select { width: 100%; border: 1px solid #173d3530; border-radius: 12px; padding: 13px 14px; background: white; color: #173d35; outline: none; }
@@ -46,6 +49,7 @@ h3 { font: 700 27px/1.1 'Fraunces', serif; margin: 0; }
 .metrics b { color: #173d35; font-size: 16px; text-transform: none; margin-right: 2px; }
 .shade-bar { height: 7px; overflow: hidden; background: #e5e6de; border-radius: 99px; }
 .shade-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #b1c86b, #1e6955); }
+.shade-bar.covered i { background: linear-gradient(90deg, #a8c8d0, #397d91); }
 .route-card small { display: block; margin-top: 8px; color: #778780; }
 .directions, .method { margin-top: 20px; padding: 22px; }
 .directions ol { list-style: none; padding: 8px 0 0; margin: 0; }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
 import { searchPlaces } from './data'
-import { fetchWalkingRoutes, rankRoutes } from './routing'
+import { fetchAndRankCoveredRoutes, fetchWalkingRoutes, rankRoutes } from './routing'
 import { localDateTimeValue, sunPosition } from './sun'
 import type { Place, RouteCandidate } from './types'
 
@@ -54,6 +54,7 @@ function App() {
   const [destination, setDestination] = useState<Place | null>(DEFAULT_DESTINATION)
   const [departure, setDeparture] = useState(localDateTimeValue())
   const [detour, setDetour] = useState(15)
+  const [mode, setMode] = useState<'shade' | 'covered'>('shade')
   const [routes, setRoutes] = useState<RouteCandidate[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [loading, setLoading] = useState(false)
@@ -66,13 +67,14 @@ function App() {
   async function buildRoutes() {
     if (!origin || !destination) return setStatus('Choose both an origin and destination.')
     setLoading(true)
-    setStatus('Comparing streets, trees, buildings, and sun…')
+    setStatus(mode === 'shade' ? 'Comparing streets, trees, buildings, and sun…' : 'Checking active sidewalk-shed permits and covered alternatives…')
     try {
-      const candidates = await fetchWalkingRoutes(origin.coordinates, destination.coordinates)
-      const ranked = await rankRoutes(candidates, new Date(departure), detour / 100)
+      const ranked = mode === 'shade'
+        ? await rankRoutes(await fetchWalkingRoutes(origin.coordinates, destination.coordinates), new Date(departure), detour / 100)
+        : await fetchAndRankCoveredRoutes(origin.coordinates, destination.coordinates, detour / 100)
       setRoutes(ranked)
       setSelectedId(ranked[0]?.id ?? '')
-      setStatus(ranked.length > 1 ? `Compared ${ranked.length} valid walking routes.` : 'Found one valid walking route.')
+      setStatus(ranked.length > 1 ? `Compared ${ranked.length} valid walking routes.` : mode === 'covered' ? 'Found one route; no useful shed detours nearby.' : 'Found one valid walking route.')
     } catch (error) {
       setRoutes([])
       setStatus(error instanceof Error ? error.message : 'Could not calculate a route.')
@@ -102,12 +104,16 @@ function App() {
     </header>
 
     <section className="hero">
-      <p className="eyebrow">Walk cooler</p>
-      <h2>Take the shady way.</h2>
-      <p>Compare walking routes using the sun, NYC buildings, and street trees—without adding an absurd detour.</p>
+      <p className="eyebrow">Walk better</p>
+      <h2>{mode === 'shade' ? 'Take the shady way.' : 'Stay under cover.'}</h2>
+      <p>{mode === 'shade' ? 'Compare walking routes using the sun, NYC buildings, and street trees—without adding an absurd detour.' : 'When rain hits, find a route that passes more active sidewalk sheds and scaffolding.'}</p>
     </section>
 
     <section className="planner card">
+      <div className="mode-toggle" aria-label="Route objective">
+        <button className={mode === 'shade' ? 'active' : ''} onClick={() => { setMode('shade'); setRoutes([]); setStatus('Ready for a cooler way across town.') }}>☀ Shade</button>
+        <button className={mode === 'covered' ? 'active' : ''} onClick={() => { setMode('covered'); setRoutes([]); setStatus('Ready to find more overhead cover.') }}>☂ Covered</button>
+      </div>
       <AddressField label="From" value={origin} onChange={setOrigin} />
       <button className="location" onClick={useLocation}>◎ Use my location</button>
       <AddressField label="To" value={destination} onChange={setDestination} />
@@ -117,30 +123,30 @@ function App() {
           <option value="5">5%</option><option value="10">10%</option><option value="15">15%</option><option value="25">25%</option>
         </select></label>
       </div>
-      <button className="primary" onClick={buildRoutes} disabled={loading}>{loading ? 'Finding shade…' : 'Find a shaded route'}</button>
+      <button className="primary" onClick={buildRoutes} disabled={loading}>{loading ? 'Comparing routes…' : mode === 'shade' ? 'Find a shaded route' : 'Find a covered route'}</button>
       <p className="status" role="status">{status}</p>
     </section>
 
     <section className="map-card card">
       <MapContainer center={[40.7128, -74.006]} zoom={12} scrollWheelZoom={false}>
         <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        {routeLines.map((route) => <Polyline key={route.id} positions={route.geometry.map(([lon, lat]) => [lat, lon])} pathOptions={{ color: route.id === selected?.id ? '#f0b84b' : '#9aa79f', weight: route.id === selected?.id ? 7 : 4, opacity: route.id === selected?.id ? 1 : 0.58 }} />)}
+        {routeLines.map((route) => <Polyline key={route.id} positions={route.geometry.map(([lon, lat]) => [lat, lon])} pathOptions={{ color: route.id === selected?.id ? mode === 'shade' ? '#f0b84b' : '#397d91' : '#9aa79f', weight: route.id === selected?.id ? 7 : 4, opacity: route.id === selected?.id ? 1 : 0.58 }} />)}
         {origin && <CircleMarker center={[origin.coordinates[1], origin.coordinates[0]]} radius={7} pathOptions={{ color: '#fff', fillColor: '#173d35', fillOpacity: 1, weight: 3 }}><Tooltip>Start</Tooltip></CircleMarker>}
         {destination && <CircleMarker center={[destination.coordinates[1], destination.coordinates[0]]} radius={7} pathOptions={{ color: '#fff', fillColor: '#d75f42', fillOpacity: 1, weight: 3 }}><Tooltip>Destination</Tooltip></CircleMarker>}
         <FitRoute route={selected} />
       </MapContainer>
-      <div className="sun-strip"><span>☀ {sun && sun.altitude > 0 ? `${Math.round(sun.altitude)}° above the horizon` : 'Sun below the horizon'}</span><span>Shade changes with time</span></div>
+      <div className="sun-strip"><span>{mode === 'shade' ? `☀ ${sun && sun.altitude > 0 ? `${Math.round(sun.altitude)}° above the horizon` : 'Sun below the horizon'}` : '☂ Active DOB sidewalk-shed filings'}</span><span>{mode === 'shade' ? 'Shade changes with time' : 'Permit status may lag reality'}</span></div>
     </section>
 
     {routes.length > 0 && <section className="results">
-      <div className="section-heading"><div><p className="eyebrow">Route comparison</p><h3>Your cooler options</h3></div><span>Estimate</span></div>
+      <div className="section-heading"><div><p className="eyebrow">Route comparison</p><h3>{mode === 'shade' ? 'Your cooler options' : 'Your covered options'}</h3></div><span>Estimate</span></div>
       <div className="route-list">{routes.map((route, index) => {
         const extra = shortest ? Math.max(0, Math.round((route.distanceM / shortest - 1) * 100)) : 0
         return <button className={`route-card ${route.id === selected?.id ? 'selected' : ''}`} key={route.id} onClick={() => setSelectedId(route.id)}>
-          <div className="route-top"><strong>{index === 0 ? 'Most shade' : route.distanceM <= shortest * 1.001 ? 'Most direct' : 'Alternative'}</strong><span>{route.shadePercent}% likely shade</span></div>
+          <div className="route-top"><strong>{index === 0 ? mode === 'shade' ? 'Most shade' : 'Most covered' : route.distanceM <= shortest * 1.001 ? 'Most direct' : 'Alternative'}</strong><span>{mode === 'shade' ? `${route.shadePercent}% likely shade` : `${route.coveredPercent}% est. cover`}</span></div>
           <div className="metrics"><span><b>{Math.round(route.durationSec / 60)}</b> min</span><span><b>{formatDistance(route.distanceM)}</b></span><span><b>{extra}%</b> extra</span></div>
-          <div className="shade-bar"><i style={{ width: `${route.shadePercent}%` }} /></div>
-          <small>{route.buildingShade}% building shade · {route.treeShade}% tree cover signal</small>
+          <div className={`shade-bar ${mode === 'covered' ? 'covered' : ''}`}><i style={{ width: `${mode === 'shade' ? route.shadePercent : route.coveredPercent}%` }} /></div>
+          <small>{mode === 'shade' ? `${route.buildingShade}% building shade · ${route.treeShade}% tree cover signal` : `${route.shedCount} active shed filing${route.shedCount === 1 ? '' : 's'} along this route`}</small>
         </button>
       })}</div>
     </section>}
@@ -152,10 +158,10 @@ function App() {
 
     <section className="method card">
       <p className="eyebrow">How it works</p><h3>A useful estimate, not x-ray vision.</h3>
-      <p>Shade Walk compares pedestrian routes against the sun’s position, NYC’s 3D Building Model / Building Footprints, and the 2015 Street Tree Census. Scaffolding, new construction, small trees, awnings, and exact sidewalk conditions may differ. Look up before committing.</p>
+      <p>Shade mode uses the sun’s position, NYC building roof heights/footprints, and the Street Tree Census. Covered mode uses active DOB NOW sidewalk-shed filings and deliberately tests routes through useful nearby sheds. Permit status, shed length, sidewalk side, scaffolding, new construction, trees, and awnings may differ from reality. Look up before committing.</p>
     </section>
 
-    <footer>Built for hot New York walks. Data from NYC Open Data, OpenStreetMap, and Valhalla.</footer>
+    <footer>Built for hot—and now wet—New York walks. Data from NYC Open Data, OpenStreetMap, and Valhalla.</footer>
   </main>
 }
 

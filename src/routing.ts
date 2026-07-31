@@ -1,7 +1,7 @@
 import { angularDifference, bearing, distanceM, sampleLine } from './geo'
-import { fetchBuildings, fetchTrees } from './data'
+import { fetchBuildings, fetchSidewalkSheds, fetchTrees } from './data'
 import { sunPosition } from './sun'
-import type { BuildingPoint, LonLat, RouteCandidate, RouteStep, TreePoint } from './types'
+import type { BuildingPoint, LonLat, RouteCandidate, RouteStep, SidewalkShed, TreePoint } from './types'
 
 const VALHALLA = 'https://valhalla1.openstreetmap.de/route'
 
@@ -80,20 +80,19 @@ function tripToCandidate(trip: ValhallaTrip, index: number): RouteCandidate {
     shadePercent: 0,
     buildingShade: 0,
     treeShade: 0,
+    coveredPercent: 0,
+    shedCount: 0,
     score: 0,
     steps,
   }
 }
 
-export async function fetchWalkingRoutes(origin: LonLat, destination: LonLat): Promise<RouteCandidate[]> {
+async function requestWalkingRoutes(locations: LonLat[], alternates = 0): Promise<RouteCandidate[]> {
   const payload = {
-    locations: [
-      { lon: origin[0], lat: origin[1], type: 'break' },
-      { lon: destination[0], lat: destination[1], type: 'break' },
-    ],
+    locations: locations.map(([lon, lat], index) => ({ lon, lat, type: index === 0 || index === locations.length - 1 ? 'break' : 'through' })),
     costing: 'pedestrian',
     units: 'kilometers',
-    alternates: 3,
+    alternates,
     directions_options: { units: 'kilometers' },
   }
   const response = await fetch(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(payload))}`)
@@ -101,6 +100,10 @@ export async function fetchWalkingRoutes(origin: LonLat, destination: LonLat): P
   const data = await response.json() as ValhallaResponse
   const trips: ValhallaTrip[] = [data.trip, ...(data.alternates ?? []).map((alternate) => 'trip' in alternate ? alternate.trip : alternate)]
   return trips.map(tripToCandidate).filter((route) => route.geometry.length > 1)
+}
+
+export async function fetchWalkingRoutes(origin: LonLat, destination: LonLat): Promise<RouteCandidate[]> {
+  return requestWalkingRoutes([origin, destination], 3)
 }
 
 function shadeAt(point: LonLat, next: LonLat, trees: TreePoint[], buildings: BuildingPoint[], at: Date): { tree: number; building: number } {
@@ -153,4 +156,55 @@ export async function rankRoutes(routes: RouteCandidate[], at: Date, maxDetour =
   const [trees, buildings] = await Promise.all([fetchTrees(allGeometry), fetchBuildings(allGeometry)])
   const enriched = await Promise.all(routes.map((route) => enrichRoute(route, at, shortestM, maxDetour, trees, buildings)))
   return enriched.sort((a, b) => b.score - a.score)
+}
+
+function distanceToLineM(point: LonLat, start: LonLat, end: LonLat): number {
+  const latScale = 111320
+  const lonScale = Math.cos((start[1] + end[1]) / 2 * Math.PI / 180) * 111320
+  const px = (point[0] - start[0]) * lonScale
+  const py = (point[1] - start[1]) * latScale
+  const ex = (end[0] - start[0]) * lonScale
+  const ey = (end[1] - start[1]) * latScale
+  const t = Math.max(0, Math.min(1, (px * ex + py * ey) / Math.max(1, ex * ex + ey * ey)))
+  return Math.hypot(px - t * ex, py - t * ey)
+}
+
+function coveredScore(route: RouteCandidate, sheds: SidewalkShed[], shortestM: number, maxDetour: number): RouteCandidate {
+  const samples = sampleLine(route.geometry, 18)
+  const nearby = new Set<string>()
+  let covered = 0
+  for (const sample of samples) {
+    const matching = sheds.filter((shed) => distanceM(sample, [shed.lon, shed.lat]) <= 32)
+    if (matching.length) {
+      covered += 1
+      matching.forEach((shed) => nearby.add(shed.filing))
+    }
+  }
+  const coveredPercent = Math.round(covered / Math.max(1, samples.length) * 100)
+  const detour = route.distanceM / shortestM - 1
+  return {
+    ...route,
+    coveredPercent,
+    shedCount: nearby.size,
+    score: detour <= maxDetour + 0.01 ? coveredPercent - detour * 35 : -1000 - detour * 100,
+  }
+}
+
+export async function fetchAndRankCoveredRoutes(origin: LonLat, destination: LonLat, maxDetour = 0.15): Promise<RouteCandidate[]> {
+  const baseline = await fetchWalkingRoutes(origin, destination)
+  if (!baseline.length) return []
+  const shortestM = Math.min(...baseline.map((route) => route.distanceM))
+  const sheds = await fetchSidewalkSheds(baseline.flatMap((route) => route.geometry))
+  const viable = sheds
+    .filter((shed) => distanceM(origin, [shed.lon, shed.lat]) + distanceM([shed.lon, shed.lat], destination) <= shortestM * (1 + maxDetour + 0.12))
+    .sort((a, b) => distanceToLineM([a.lon, a.lat], origin, destination) - distanceToLineM([b.lon, b.lat], origin, destination))
+    .slice(0, 5)
+  const routed = await Promise.all(viable.map(async (shed) => {
+    try { return (await requestWalkingRoutes([origin, [shed.lon, shed.lat], destination]))[0] } catch { return undefined }
+  }))
+  const unique = [...baseline, ...routed.filter((route): route is RouteCandidate => Boolean(route))]
+    .filter((route, index, all) => all.findIndex((candidate) => candidate.geometry[Math.floor(candidate.geometry.length / 2)]?.join(',') === route.geometry[Math.floor(route.geometry.length / 2)]?.join(',')) === index)
+  return unique
+    .map((route, index) => coveredScore({ ...route, id: `covered-route-${index + 1}` }, sheds, shortestM, maxDetour))
+    .sort((a, b) => b.score - a.score)
 }

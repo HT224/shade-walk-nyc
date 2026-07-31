@@ -19,8 +19,17 @@ export interface RouteCandidate {
   shadePercent: number
   buildingShade: number
   treeShade: number
+  coveredPercent: number
+  shedCount: number
   score: number
   steps: RouteStep[]
+}
+
+export interface SidewalkShed {
+  lon: number
+  lat: number
+  address: string
+  filing: string
 }
 
 export interface TreePoint {

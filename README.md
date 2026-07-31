@@ -4,7 +4,7 @@ Find a more shaded walking route through New York City.
 
 **Live app:** https://shade-walk-nyc.vercel.app
 
-Shade Walk compares valid pedestrian routes against the sun's position, NYC building data, and the 2015 Street Tree Census. It favors the route with the strongest estimated shade while respecting the user's maximum acceptable detour.
+Shade Walk offers two route objectives: **Shade** compares pedestrian routes against the sun, NYC buildings, and street trees; **Covered** uses active NYC DOB sidewalk-shed filings to test and rank routes that pass under more scaffolding. Both respect the user's maximum acceptable detour.
 
 ## What it does
 
@@ -14,6 +14,8 @@ Shade Walk compares valid pedestrian routes against the sun's position, NYC buil
 - Estimates building shade using NYC Building Footprints / 3D Building Model roof heights and solar direction.
 - Adds a street-tree shade signal from the NYC 2015 Street Tree Census.
 - Ranks routes by shade while enforcing a 5–25% detour limit.
+- Finds active sidewalk-shed filings in the walking corridor and generates additional pedestrian routes through useful shed locations.
+- Ranks a separate rain-oriented Covered mode by estimated overhead coverage.
 - Draws exact route geometry and provides turn-by-turn directions.
 - Works as a mobile-first installable PWA.
 
@@ -36,6 +38,7 @@ No API keys are required.
 - NYC Planning GeoSearch
 - NYC Building Footprints / 3D Building Model (`5zhs-2jue`)
 - NYC 2015 Street Tree Census (`uvpi-gqnh`)
+- DOB NOW: Build – Job Application Filings (`w9ak-ipjd`), filtered to permitted, unsigned-off sidewalk-shed work
 - OpenStreetMap tiles and pedestrian graph
 - Valhalla public routing service
 
